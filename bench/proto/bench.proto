@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+option go_package = "ipc-bench/proto";
+
+package bench;
+
+service Bench {
+  rpc Echo(Payload) returns (Payload);
+}
+
+message Payload {
+  bytes data = 1;
+}

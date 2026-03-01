@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ipc-bench-fifo
+  namespace: ipc-bench
+spec:
+  restartPolicy: Never
+  volumes:
+  - name: fifo-dir
+    emptyDir: {}
+  initContainers:
+  - name: mkfifo
+    image: ipc-bench:latest
+    imagePullPolicy: Never
+    command: ["/bin/sh", "-c", "mkfifo /run/ipc/req.fifo /run/ipc/resp.fifo"]
+    volumeMounts:
+    - { name: fifo-dir, mountPath: /run/ipc }
+  containers:
+  - name: sidecar
+    image: ipc-bench:latest
+    imagePullPolicy: Never
+    args: ["--role=sidecar", "--method=fifo", "--socket-path=/run/ipc", "--size=5120"]
+    volumeMounts:
+    - { name: fifo-dir, mountPath: /run/ipc }
+    resources:
+      requests: { cpu: "1", memory: "256Mi" }
+      limits:   { cpu: "1", memory: "256Mi" }
+  - name: main
+    image: ipc-bench:latest
+    imagePullPolicy: Never
+    args: ["--role=main", "--method=fifo", "--socket-path=/run/ipc",
+           "--size=5120", "--count=100000", "--warmup=10000", "--json"]
+    volumeMounts:
+    - { name: fifo-dir, mountPath: /run/ipc }
+    resources:
+      requests: { cpu: "1", memory: "256Mi" }
+      limits:   { cpu: "1", memory: "256Mi" }

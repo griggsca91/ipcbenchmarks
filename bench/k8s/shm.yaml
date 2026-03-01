@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ipc-bench-shm
+  namespace: ipc-bench
+spec:
+  restartPolicy: Never
+  volumes:
+  - name: devshm
+    emptyDir: { medium: Memory, sizeLimit: "64Mi" }
+  containers:
+  - name: sidecar
+    image: ipc-bench:latest
+    imagePullPolicy: Never
+    args: ["--role=sidecar", "--method=shm", "--size=5120"]
+    volumeMounts:
+    - { name: devshm, mountPath: /dev/shm }
+    resources:
+      requests: { cpu: "1", memory: "256Mi" }
+      limits:   { cpu: "1", memory: "256Mi" }
+  - name: main
+    image: ipc-bench:latest
+    imagePullPolicy: Never
+    args: ["--role=main", "--method=shm",
+           "--size=5120", "--count=100000", "--warmup=10000", "--json"]
+    volumeMounts:
+    - { name: devshm, mountPath: /dev/shm }
+    resources:
+      requests: { cpu: "1", memory: "256Mi" }
+      limits:   { cpu: "1", memory: "256Mi" }

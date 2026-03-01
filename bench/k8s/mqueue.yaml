@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ipc-bench-mqueue
+  namespace: ipc-bench
+spec:
+  restartPolicy: Never
+  initContainers:
+  - name: sysctl
+    image: ipc-bench:latest
+    imagePullPolicy: Never
+    securityContext:
+      privileged: true
+    command: ["/bin/sh", "-c", "sysctl -w fs.mqueue.msgsize_max=8192 || true"]
+  containers:
+  - name: sidecar
+    image: ipc-bench:latest
+    imagePullPolicy: Never
+    args: ["--role=sidecar", "--method=mqueue", "--size=5120"]
+    resources:
+      requests: { cpu: "1", memory: "256Mi" }
+      limits:   { cpu: "1", memory: "256Mi" }
+  - name: main
+    image: ipc-bench:latest
+    imagePullPolicy: Never
+    args: ["--role=main", "--method=mqueue",
+           "--size=5120", "--count=100000", "--warmup=10000", "--json"]
+    resources:
+      requests: { cpu: "1", memory: "256Mi" }
+      limits:   { cpu: "1", memory: "256Mi" }
