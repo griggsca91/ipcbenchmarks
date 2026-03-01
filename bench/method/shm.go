@@ -204,7 +204,8 @@ type SHMServer struct {
 }
 
 func (s *SHMServer) Setup(cfg Config) error {
-	s.size = cfg.Size
+	wireSize := protoWireSize(cfg.Size)
+	s.size = wireSize
 	n := cfg.Parallel
 	if n < 1 {
 		n = 1
@@ -213,11 +214,11 @@ func (s *SHMServer) Setup(cfg Config) error {
 
 	for i := 0; i < n; i++ {
 		var err error
-		s.pairs[i].reqRing, err = mapRing(shmReqName(i), cfg.Size, true)
+		s.pairs[i].reqRing, err = mapRing(shmReqName(i), wireSize, true)
 		if err != nil {
 			return err
 		}
-		s.pairs[i].respRing, err = mapRing(shmRespName(i), cfg.Size, true)
+		s.pairs[i].respRing, err = mapRing(shmRespName(i), wireSize, true)
 		if err != nil {
 			return err
 		}
@@ -232,7 +233,11 @@ func (s *SHMServer) servePair(ctx context.Context, p shmPair) error {
 			return nil
 		}
 		n := p.reqRing.recv(buf)
-		p.respRing.send(buf[:n])
+		resp, err := echoPayload(buf[:n])
+		if err != nil {
+			return fmt.Errorf("shm server echo: %w", err)
+		}
+		p.respRing.send(resp)
 	}
 }
 
@@ -275,23 +280,28 @@ type SHMClient struct {
 }
 
 func (c *SHMClient) Setup(cfg Config) error {
+	wireSize := protoWireSize(cfg.Size)
 	var err error
-	c.reqRing, err = mapRing(shmReqName(cfg.ClientID), cfg.Size, false)
+	c.reqRing, err = mapRing(shmReqName(cfg.ClientID), wireSize, false)
 	if err != nil {
 		return err
 	}
-	c.respRing, err = mapRing(shmRespName(cfg.ClientID), cfg.Size, false)
+	c.respRing, err = mapRing(shmRespName(cfg.ClientID), wireSize, false)
 	if err != nil {
 		return err
 	}
-	c.buf = make([]byte, cfg.Size)
+	c.buf = make([]byte, wireSize)
 	return nil
 }
 
 func (c *SHMClient) RoundTrip(payload []byte) ([]byte, error) {
-	c.reqRing.send(payload)
+	wire, err := marshalPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("shm marshal: %w", err)
+	}
+	c.reqRing.send(wire)
 	n := c.respRing.recv(c.buf)
-	return c.buf[:n], nil
+	return unmarshalPayload(c.buf[:n])
 }
 
 func (c *SHMClient) Teardown() error {

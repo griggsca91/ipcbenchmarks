@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "*",
       "WebSearch",
       "WebFetch(domain:www.yanxurui.cc)",
       "WebFetch(domain:www.baeldung.com)",
@@ -40,7 +41,17 @@
       "Bash(COUNT=500 WARMUP=50 ./scripts/run-local.sh tcp:*)",
       "Bash(COUNT=500 WARMUP=50 ./scripts/run-local.sh uds:*)",
       "Bash(COUNT=500 WARMUP=50 ./scripts/run-local.sh fifo:*)",
-      "Bash(COUNT=100 WARMUP=10 ./scripts/run-local.sh tcp:*)"
+      "Bash(COUNT=100 WARMUP=10 ./scripts/run-local.sh tcp:*)",
+      "Bash(COUNT=5000 WARMUP=500 ./scripts/run-local.sh tcp:*)",
+      "Bash(COUNT=5000 WARMUP=500 ./scripts/run-local.sh uds:*)",
+      "Bash(COUNT=5000 WARMUP=500 ./scripts/run-local.sh fifo:*)",
+      "Bash(COUNT=5000 WARMUP=500 ./scripts/run-local.sh grpc:*)",
+      "Bash(COUNT=100 WARMUP=10 ./scripts/run-local.sh grpc-tcp:*)",
+      "Bash(COUNT=100 WARMUP=10 ./scripts/run-local.sh grpc:*)",
+      "Bash(COUNT=5000 WARMUP=500 ./scripts/run-local.sh grpc-tcp:*)",
+      "Bash(python3:*)",
+      "Bash(COUNT=500 WARMUP=50 ./scripts/run-local.sh grpc:*)",
+      "Bash(COUNT=500 WARMUP=50 ./scripts/run-local.sh grpc-tcp:*)"
     ]
   }
 }

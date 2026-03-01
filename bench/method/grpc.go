@@ -15,8 +15,9 @@ import (
 
 const grpcSocketName = "grpc.sock"
 
-// GRPCServer implements the Bench gRPC service over a UDS.
+// GRPCServer implements the Bench gRPC service over a UDS or TCP.
 type GRPCServer struct {
+	Transport  string // "unix" (default) or "tcp"
 	listener   net.Listener
 	grpcServer *grpc.Server
 	sockPath   string
@@ -31,13 +32,23 @@ func (s *benchService) Echo(_ context.Context, req *pb.Payload) (*pb.Payload, er
 }
 
 func (s *GRPCServer) Setup(cfg Config) error {
-	s.sockPath = filepath.Join(cfg.SocketPath, grpcSocketName)
-	os.Remove(s.sockPath)
+	var ln net.Listener
+	var err error
 
-	ln, err := net.Listen("unix", s.sockPath)
-	if err != nil {
-		return fmt.Errorf("grpc listen: %w", err)
+	if s.Transport == "tcp" {
+		ln, err = net.Listen("tcp", cfg.Address)
+		if err != nil {
+			return fmt.Errorf("grpc-tcp listen: %w", err)
+		}
+	} else {
+		s.sockPath = filepath.Join(cfg.SocketPath, grpcSocketName)
+		os.Remove(s.sockPath)
+		ln, err = net.Listen("unix", s.sockPath)
+		if err != nil {
+			return fmt.Errorf("grpc listen: %w", err)
+		}
 	}
+
 	s.listener = ln
 	s.grpcServer = grpc.NewServer()
 	pb.RegisterBenchServer(s.grpcServer, &benchService{})
@@ -56,19 +67,27 @@ func (s *GRPCServer) Teardown() error {
 	if s.grpcServer != nil {
 		s.grpcServer.Stop()
 	}
-	os.Remove(s.sockPath)
+	if s.sockPath != "" {
+		os.Remove(s.sockPath)
+	}
 	return nil
 }
 
-// GRPCClient calls the Bench gRPC service over a UDS.
+// GRPCClient calls the Bench gRPC service over a UDS or TCP.
 type GRPCClient struct {
-	conn   *grpc.ClientConn
-	client pb.BenchClient
+	Transport string // "unix" (default) or "tcp"
+	conn      *grpc.ClientConn
+	client    pb.BenchClient
 }
 
 func (c *GRPCClient) Setup(cfg Config) error {
-	sockPath := filepath.Join(cfg.SocketPath, grpcSocketName)
-	target := "unix://" + sockPath
+	var target string
+	if c.Transport == "tcp" {
+		target = cfg.Address
+	} else {
+		sockPath := filepath.Join(cfg.SocketPath, grpcSocketName)
+		target = "unix://" + sockPath
+	}
 
 	conn, err := grpc.NewClient(target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),

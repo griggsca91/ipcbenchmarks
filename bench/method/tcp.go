@@ -67,13 +67,20 @@ func (s *TCPServer) handleConn(ctx context.Context, conn net.Conn) {
 			return
 		}
 
+		// Unmarshal and re-marshal (protobuf echo)
+		resp, err := echoPayload(buf)
+		if err != nil {
+			log.Printf("tcp server echo: %v", err)
+			return
+		}
+
 		// Echo back with length prefix
-		binary.BigEndian.PutUint32(header, size)
+		binary.BigEndian.PutUint32(header, uint32(len(resp)))
 		if _, err := conn.Write(header); err != nil {
 			log.Printf("tcp server write header: %v", err)
 			return
 		}
-		if _, err := conn.Write(buf); err != nil {
+		if _, err := conn.Write(resp); err != nil {
 			log.Printf("tcp server write body: %v", err)
 			return
 		}
@@ -104,17 +111,22 @@ func (c *TCPClient) Setup(cfg Config) error {
 	}
 	c.conn = conn
 	c.header = make([]byte, 4)
-	c.buf = make([]byte, cfg.Size)
+	c.buf = make([]byte, protoWireSize(cfg.Size))
 	return nil
 }
 
 func (c *TCPClient) RoundTrip(payload []byte) ([]byte, error) {
-	// Send length + payload
-	binary.BigEndian.PutUint32(c.header, uint32(len(payload)))
+	wire, err := marshalPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("tcp marshal: %w", err)
+	}
+
+	// Send length + wire bytes
+	binary.BigEndian.PutUint32(c.header, uint32(len(wire)))
 	if _, err := c.conn.Write(c.header); err != nil {
 		return nil, fmt.Errorf("tcp write header: %w", err)
 	}
-	if _, err := c.conn.Write(payload); err != nil {
+	if _, err := c.conn.Write(wire); err != nil {
 		return nil, fmt.Errorf("tcp write body: %w", err)
 	}
 
@@ -129,7 +141,7 @@ func (c *TCPClient) RoundTrip(payload []byte) ([]byte, error) {
 	if _, err := io.ReadFull(c.conn, c.buf[:size]); err != nil {
 		return nil, fmt.Errorf("tcp read body: %w", err)
 	}
-	return c.buf[:size], nil
+	return unmarshalPayload(c.buf[:size])
 }
 
 func (c *TCPClient) Teardown() error {

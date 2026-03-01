@@ -87,8 +87,9 @@ type MQueueServer struct {
 }
 
 func (s *MQueueServer) Setup(cfg Config) error {
-	s.size = cfg.Size
-	if err := mqCheckMsgSizeMax(cfg.Size); err != nil {
+	wireSize := protoWireSize(cfg.Size)
+	s.size = wireSize
+	if err := mqCheckMsgSizeMax(wireSize); err != nil {
 		return err
 	}
 
@@ -106,11 +107,11 @@ func (s *MQueueServer) Setup(cfg Config) error {
 		C.mq_unlink(C.CString(reqName))
 		C.mq_unlink(C.CString(respName))
 
-		s.pairs[i].reqMQ = C.mq_open_rw(C.CString(reqName), C.O_RDONLY, C.int(mqMaxMsg), C.int(cfg.Size))
+		s.pairs[i].reqMQ = C.mq_open_rw(C.CString(reqName), C.O_RDONLY, C.int(mqMaxMsg), C.int(wireSize))
 		if s.pairs[i].reqMQ == -1 {
 			return fmt.Errorf("mq_open req[%d]: %s", i, C.GoString(C.last_error()))
 		}
-		s.pairs[i].respMQ = C.mq_open_rw(C.CString(respName), C.O_WRONLY, C.int(mqMaxMsg), C.int(cfg.Size))
+		s.pairs[i].respMQ = C.mq_open_rw(C.CString(respName), C.O_WRONLY, C.int(mqMaxMsg), C.int(wireSize))
 		if s.pairs[i].respMQ == -1 {
 			return fmt.Errorf("mq_open resp[%d]: %s", i, C.GoString(C.last_error()))
 		}
@@ -131,7 +132,11 @@ func (s *MQueueServer) servePair(ctx context.Context, p mqPair) error {
 			}
 			return fmt.Errorf("mq_receive: %s", C.GoString(C.last_error()))
 		}
-		rc := C.mq_send_bytes(p.respMQ, (*C.char)(unsafe.Pointer(&buf[0])), C.size_t(n))
+		resp, err := echoPayload(buf[:n])
+		if err != nil {
+			return fmt.Errorf("mq server echo: %w", err)
+		}
+		rc := C.mq_send_bytes(p.respMQ, (*C.char)(unsafe.Pointer(&resp[0])), C.size_t(len(resp)))
 		if rc < 0 {
 			return fmt.Errorf("mq_send: %s", C.GoString(C.last_error()))
 		}
@@ -179,22 +184,27 @@ type MQueueClient struct {
 }
 
 func (c *MQueueClient) Setup(cfg Config) error {
+	wireSize := protoWireSize(cfg.Size)
 	reqName := mqReqName(cfg.ClientID)
 	respName := mqRespName(cfg.ClientID)
-	c.reqMQ = C.mq_open_rw(C.CString(reqName), C.O_WRONLY, C.int(mqMaxMsg), C.int(cfg.Size))
+	c.reqMQ = C.mq_open_rw(C.CString(reqName), C.O_WRONLY, C.int(mqMaxMsg), C.int(wireSize))
 	if c.reqMQ == -1 {
 		return fmt.Errorf("mq_open req[%d]: %s", cfg.ClientID, C.GoString(C.last_error()))
 	}
-	c.respMQ = C.mq_open_rw(C.CString(respName), C.O_RDONLY, C.int(mqMaxMsg), C.int(cfg.Size))
+	c.respMQ = C.mq_open_rw(C.CString(respName), C.O_RDONLY, C.int(mqMaxMsg), C.int(wireSize))
 	if c.respMQ == -1 {
 		return fmt.Errorf("mq_open resp[%d]: %s", cfg.ClientID, C.GoString(C.last_error()))
 	}
-	c.buf = make([]byte, cfg.Size)
+	c.buf = make([]byte, wireSize)
 	return nil
 }
 
 func (c *MQueueClient) RoundTrip(payload []byte) ([]byte, error) {
-	rc := C.mq_send_bytes(c.reqMQ, (*C.char)(unsafe.Pointer(&payload[0])), C.size_t(len(payload)))
+	wire, err := marshalPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("mq marshal: %w", err)
+	}
+	rc := C.mq_send_bytes(c.reqMQ, (*C.char)(unsafe.Pointer(&wire[0])), C.size_t(len(wire)))
 	if rc < 0 {
 		return nil, fmt.Errorf("mq_send: %s", C.GoString(C.last_error()))
 	}
@@ -202,7 +212,7 @@ func (c *MQueueClient) RoundTrip(payload []byte) ([]byte, error) {
 	if n < 0 {
 		return nil, fmt.Errorf("mq_receive: %s", C.GoString(C.last_error()))
 	}
-	return c.buf[:n], nil
+	return unmarshalPayload(c.buf[:n])
 }
 
 func (c *MQueueClient) Teardown() error {

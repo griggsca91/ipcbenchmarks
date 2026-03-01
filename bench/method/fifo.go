@@ -74,12 +74,18 @@ func (s *FIFOServer) Serve(ctx context.Context) error {
 			return fmt.Errorf("fifo read body: %w", err)
 		}
 
+		// Unmarshal and re-marshal (protobuf echo)
+		resp, err := echoPayload(buf)
+		if err != nil {
+			return fmt.Errorf("fifo server echo: %w", err)
+		}
+
 		// Echo back
-		binary.BigEndian.PutUint32(header, size)
+		binary.BigEndian.PutUint32(header, uint32(len(resp)))
 		if _, err := s.respFile.Write(header); err != nil {
 			return fmt.Errorf("fifo write header: %w", err)
 		}
-		if _, err := s.respFile.Write(buf); err != nil {
+		if _, err := s.respFile.Write(resp); err != nil {
 			return fmt.Errorf("fifo write body: %w", err)
 		}
 	}
@@ -122,17 +128,22 @@ func (c *FIFOClient) Setup(cfg Config) error {
 	}
 
 	c.header = make([]byte, 4)
-	c.buf = make([]byte, cfg.Size)
+	c.buf = make([]byte, protoWireSize(cfg.Size))
 	return nil
 }
 
 func (c *FIFOClient) RoundTrip(payload []byte) ([]byte, error) {
-	// Send length + payload
-	binary.BigEndian.PutUint32(c.header, uint32(len(payload)))
+	wire, err := marshalPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("fifo marshal: %w", err)
+	}
+
+	// Send length + wire bytes
+	binary.BigEndian.PutUint32(c.header, uint32(len(wire)))
 	if _, err := c.reqFile.Write(c.header); err != nil {
 		return nil, fmt.Errorf("fifo write header: %w", err)
 	}
-	if _, err := c.reqFile.Write(payload); err != nil {
+	if _, err := c.reqFile.Write(wire); err != nil {
 		return nil, fmt.Errorf("fifo write body: %w", err)
 	}
 
@@ -147,7 +158,7 @@ func (c *FIFOClient) RoundTrip(payload []byte) ([]byte, error) {
 	if _, err := io.ReadFull(c.respFile, c.buf[:size]); err != nil {
 		return nil, fmt.Errorf("fifo read body: %w", err)
 	}
-	return c.buf[:size], nil
+	return unmarshalPayload(c.buf[:size])
 }
 
 func (c *FIFOClient) Teardown() error {

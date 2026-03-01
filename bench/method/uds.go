@@ -96,12 +96,17 @@ func (s *UDSServer) handleClient(ctx context.Context, fd int) {
 				log.Printf("uds read body: %v", err)
 				return
 			}
-			binary.BigEndian.PutUint32(header, size)
+			resp, err := echoPayload(buf[:size])
+			if err != nil {
+				log.Printf("uds server echo: %v", err)
+				return
+			}
+			binary.BigEndian.PutUint32(header, uint32(len(resp)))
 			if err := sendFull(fd, header); err != nil {
 				log.Printf("uds write header: %v", err)
 				return
 			}
-			if err := sendFull(fd, buf[:size]); err != nil {
+			if err := sendFull(fd, resp); err != nil {
 				log.Printf("uds write body: %v", err)
 				return
 			}
@@ -123,7 +128,12 @@ func (s *UDSServer) handleClient(ctx context.Context, fd int) {
 			if n == 0 {
 				return
 			}
-			if err := unix.Sendto(fd, buf[:n], 0, nil); err != nil {
+			resp, err := echoPayload(buf[:n])
+			if err != nil {
+				log.Printf("uds server echo: %v", err)
+				return
+			}
+			if err := unix.Sendto(fd, resp, 0, nil); err != nil {
 				log.Printf("uds sendto: %v", err)
 				return
 			}
@@ -160,20 +170,25 @@ func (c *UDSClient) Setup(cfg Config) error {
 	}
 
 	c.fd = fd
-	c.buf = make([]byte, cfg.Size)
+	c.buf = make([]byte, protoWireSize(cfg.Size))
 	c.header = make([]byte, 4)
 	c.stream = udsIsStream()
 	return nil
 }
 
 func (c *UDSClient) RoundTrip(payload []byte) ([]byte, error) {
+	wire, err := marshalPayload(payload)
+	if err != nil {
+		return nil, fmt.Errorf("uds marshal: %w", err)
+	}
+
 	if c.stream {
 		// SOCK_STREAM: length-prefixed
-		binary.BigEndian.PutUint32(c.header, uint32(len(payload)))
+		binary.BigEndian.PutUint32(c.header, uint32(len(wire)))
 		if err := sendFull(c.fd, c.header); err != nil {
 			return nil, fmt.Errorf("uds send header: %w", err)
 		}
-		if err := sendFull(c.fd, payload); err != nil {
+		if err := sendFull(c.fd, wire); err != nil {
 			return nil, fmt.Errorf("uds send body: %w", err)
 		}
 		if err := recvFull(c.fd, c.header); err != nil {
@@ -186,18 +201,18 @@ func (c *UDSClient) RoundTrip(payload []byte) ([]byte, error) {
 		if err := recvFull(c.fd, c.buf[:size]); err != nil {
 			return nil, fmt.Errorf("uds recv body: %w", err)
 		}
-		return c.buf[:size], nil
+		return unmarshalPayload(c.buf[:size])
 	}
 
 	// SOCK_SEQPACKET: message boundaries preserved
-	if err := unix.Sendto(c.fd, payload, 0, nil); err != nil {
+	if err := unix.Sendto(c.fd, wire, 0, nil); err != nil {
 		return nil, fmt.Errorf("uds send: %w", err)
 	}
 	n, _, err := unix.Recvfrom(c.fd, c.buf, 0)
 	if err != nil {
 		return nil, fmt.Errorf("uds recv: %w", err)
 	}
-	return c.buf[:n], nil
+	return unmarshalPayload(c.buf[:n])
 }
 
 func (c *UDSClient) Teardown() error {

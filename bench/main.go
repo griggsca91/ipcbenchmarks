@@ -16,7 +16,7 @@ import (
 
 func main() {
 	role := flag.String("role", "", "Role: main or sidecar")
-	meth := flag.String("method", "", "IPC method: tcp, uds, fifo, mqueue, grpc, shm")
+	meth := flag.String("method", "", "IPC method: tcp, uds, fifo, mqueue, grpc, grpc-tcp, shm")
 	size := flag.Int("size", 5120, "Payload size in bytes")
 	count := flag.Int("count", 100000, "Number of measured iterations")
 	warmup := flag.Int("warmup", 10000, "Number of warmup iterations")
@@ -27,7 +27,7 @@ func main() {
 	flag.Parse()
 
 	if *role == "" || *meth == "" {
-		fmt.Fprintf(os.Stderr, "Usage: ipc-bench --role=<main|sidecar> --method=<tcp|uds|fifo|mqueue|grpc|shm>\n")
+		fmt.Fprintf(os.Stderr, "Usage: ipc-bench --role=<main|sidecar> --method=<tcp|uds|fifo|mqueue|grpc|grpc-tcp|shm>\n")
 		os.Exit(1)
 	}
 
@@ -67,6 +67,8 @@ func newServer(name string) method.Server {
 		return &method.MQueueServer{}
 	case "grpc":
 		return &method.GRPCServer{}
+	case "grpc-tcp":
+		return &method.GRPCServer{Transport: "tcp"}
 	case "shm":
 		return &method.SHMServer{}
 	default:
@@ -87,6 +89,8 @@ func newClient(name string) method.Client {
 		return &method.MQueueClient{}
 	case "grpc":
 		return &method.GRPCClient{}
+	case "grpc-tcp":
+		return &method.GRPCClient{Transport: "tcp"}
 	case "shm":
 		return &method.SHMClient{}
 	default:
